@@ -1,0 +1,24 @@
+name: Fetch generated art
+on:
+  workflow_dispatch:
+    inputs:
+      url: { description: 'Image URL', required: true }
+      name: { description: 'Save as (in assets/)', required: true }
+  push:
+    paths: ['.github/art-queue.txt']
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download queued images
+        run: |
+          mkdir -p assets
+          if [ -n "${{ github.event.inputs.url }}" ]; then echo "${{ github.event.inputs.name }} ${{ github.event.inputs.url }}" > /tmp/q; else cp .github/art-queue.txt /tmp/q; fi
+          while read -r name url; do [ -z "$name" ] && continue; curl -fsSL "$url" -o "assets/$name"; ls -la "assets/$name"; done < /tmp/q
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add assets && git commit -m "Add generated art to assets/" && git push || echo "nothing to commit"
