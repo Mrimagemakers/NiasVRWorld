@@ -699,7 +699,7 @@ body.ar-on #worldmap { display:none !important; }
 </div></div>
 
 <div id="ar-hud">
-  <div id="ar-top"><button class="btn" onclick="closeAR()">✕ Exit</button><div id="ar-prompt"></div></div>
+  <div id="ar-top"><button class="btn" onclick="closeAR()">✕ Exit</button><div id="ar-prompt"></div><button class="btn" id="ar-recenter" onclick="arRecenter()" style="display:none">📍 Nia here</button></div>
   <div>
     <div id="ar-start">
       <button class="btn gold" onclick="arStart(0)">🌱 Sprout: find the number</button>
@@ -4964,16 +4964,24 @@ window.openAR = async () => {
   AR.anchor.position.set(0, 0, 0); AR.anchor.scale.setScalar(1); AR.stage.visible = true; AR.placed = true;
   if (!AR.controls) { AR.controls = new OrbitControls(AR.camera, renderer.domElement); AR.controls.target.set(0, 0.9, 0); AR.controls.enableDamping = true; AR.controls.maxPolarAngle = Math.PI * 0.49; AR.controls.minDistance = 1.5; AR.controls.maxDistance = 6; }
   AR.controls.enabled = true; AR.camera.aspect = innerWidth / innerHeight; AR.camera.fov = innerWidth / innerHeight < 0.8 ? 70 : 55; AR.camera.updateProjectionMatrix();
-  const ok = navigator.xr ? await navigator.xr.isSessionSupported('immersive-ar').catch(() => false) : false;
-  sEl('ar-camera').style.display = ok ? 'inline-block' : 'none';
-  sEl('ar-note').textContent = ok ? 'Tap "📷 Use my camera" to put Nia in your room!' : 'Camera AR needs a phone or headset with WebXR AR (e.g. Android Chrome, Meta Quest). Playing on the magic stage instead!';
+  const xrOK = navigator.xr ? await navigator.xr.isSessionSupported('immersive-ar').catch(() => false) : false;
+  const camOK = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  AR.xrOK = xrOK;
+  sEl('ar-camera').style.display = (xrOK || camOK) ? 'inline-block' : 'none';
+  sEl('ar-note').textContent = (xrOK || camOK) ? 'Tap "📷 Use my camera" to see Nia in your room — or play right here on the magic stage!' : 'This browser has no camera access, so we\'re playing on the magic stage!';
 };
 window.closeAR = async () => {
   if (AR.xr) { try { await renderer.xr.getSession()?.end(); } catch (e) {} }
+  stopCamAR();
   AR.active = false; if (AR.game) AR.game.running = false; controls.enabled = true; if (AR.controls) AR.controls.enabled = false;
   sEl('ar-hud').style.display = 'none'; document.body.classList.remove('ar-on');
 };
 window.startCameraAR = async () => {
+  SFX.unlock();
+  if (AR.xrOK) { if (await startXRAR()) return; }
+  startCamAR();
+};
+async function startXRAR() {
   try {
     const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'local-floor'], domOverlay: { root: sEl('ar-hud') } });
     AR.xr = true; AR.placed = false; AR.stage.visible = false; AR.anchor.visible = false;
@@ -4988,8 +4996,69 @@ window.startCameraAR = async () => {
     };
     c.addEventListener('select', onSel); AR.scene.add(c);
     session.addEventListener('end', () => { AR.xr = false; AR.hitSource = null; c.removeEventListener('select', onSel); renderer.xr.setReferenceSpaceType('local-floor'); AR.anchor.visible = true; AR.stage.visible = true; AR.anchor.position.set(0, 0, 0); AR.anchor.scale.setScalar(1); });
-  } catch (e) { sEl('ar-note').textContent = 'The camera could not start here (' + (e.message || e.name) + '). Playing on the magic stage!'; }
+    return true;
+  } catch (e) { AR.xr = false; return false; }
+}
+
+// ─── Camera "magic window" AR — works on iPhone, Android and laptops ─────────
+// The live camera fills the background; Nia and the butterflies stand in front of you.
+// On phones, turning the phone looks around (gyroscope), so Nia stays put in your room.
+const CAM = { on: false, stream: null, video: null, tex: null, orient: null, q0: null, yaw0: null, aspect: 0 };
+const _qa = new THREE.Quaternion(), _qx = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)), _eul = new THREE.Euler(), _zee = new THREE.Vector3(0, 0, 1);
+function camOrientQuat(o) {
+  const a = THREE.MathUtils.degToRad(o.alpha || 0), b = THREE.MathUtils.degToRad(o.beta || 0), g = THREE.MathUtils.degToRad(o.gamma || 0);
+  const scr = THREE.MathUtils.degToRad((screen.orientation && screen.orientation.angle) || window.orientation || 0);
+  _eul.set(b, a, -g, 'YXZ'); _qa.setFromEuler(_eul).multiply(_qx).multiply(new THREE.Quaternion().setFromAxisAngle(_zee, -scr)); return _qa;
+}
+const onOrient = (e) => { if (e.alpha == null && e.beta == null) return; CAM.orient = { alpha: e.alpha, beta: e.beta, gamma: e.gamma }; };
+function camCover() {           // keep the video's proportions ("cover") whatever the screen shape
+  const v = CAM.video, t = CAM.tex; if (!v || !t || !v.videoWidth) return;
+  const sa = innerWidth / innerHeight, va = v.videoWidth / v.videoHeight;
+  if (sa > va) { t.repeat.set(1, va / sa); t.offset.set(0, (1 - va / sa) / 2); } else { t.repeat.set(sa / va, 1); t.offset.set((1 - sa / va) / 2, 0); }
+  CAM.aspect = sa;
+}
+window.arRecenter = () => {      // put Nia ~2 m in front of wherever the camera is looking
+  const f = new THREE.Vector3(); AR.camera.getWorldDirection(f); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
+  AR.anchor.position.set(f.x * 2.6, -1.0, f.z * 2.6); AR.anchor.rotation.set(0, Math.atan2(-f.x, -f.z), 0); AR.anchor.scale.setScalar(0.8);
 };
+async function startCamAR() {
+  sEl('ar-note').textContent = 'Starting your camera…';
+  // iPhone/iPad ask for motion permission — it must be requested right from this tap
+  try { if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission().catch(() => 'denied'); } catch (e) {}
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }); }
+  catch (e) {
+    const site = 'https://mrimagemakers.github.io/NiasVRWorld/';
+    const blocked = /NotAllowed|Security|Permission/i.test(e.name || '') ;
+    sEl('ar-note').innerHTML = '';
+    const msg = document.createElement('span');
+    msg.textContent = blocked ? (location.hostname.endsWith('github.io') ? 'Camera permission was turned off. Allow the camera for this site in your browser settings, then try again. Playing on the magic stage for now!' : 'The camera is blocked inside this window. Open the website version to use your camera: ') : 'No camera was found (' + (e.name || 'error') + '). Playing on the magic stage!';
+    sEl('ar-note').appendChild(msg);
+    if (blocked && !location.hostname.endsWith('github.io')) { const a = document.createElement('a'); a.href = site; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Open Nia\'s VR World ↗'; a.style.color = '#FFE27A'; a.style.fontWeight = '800'; sEl('ar-note').appendChild(a); }
+    return;
+  }
+  const v = document.createElement('video'); v.setAttribute('playsinline', ''); v.muted = true; v.autoplay = true; v.srcObject = stream;
+  try { await v.play(); } catch (e) {}
+  CAM.stream = stream; CAM.video = v; CAM.on = true; CAM.orient = null; CAM.yaw0 = null; CAM.q0 = null;
+  CAM.tex = new THREE.VideoTexture(v); CAM.tex.colorSpace = THREE.SRGBColorSpace; CAM.tex.minFilter = THREE.LinearFilter;
+  AR.scene.background = CAM.tex; AR.stage.visible = false; if (AR.controls) AR.controls.enabled = false;
+  AR.camera.position.set(0, 0, 0); AR.camera.quaternion.identity(); AR.camera.fov = innerWidth / innerHeight < 0.8 ? 62 : 50; AR.camera.updateProjectionMatrix();
+  addEventListener('deviceorientation', onOrient);
+  v.addEventListener('loadedmetadata', camCover); setTimeout(camCover, 500);
+  arRecenter(); sEl('ar-recenter').style.display = 'inline-block'; sEl('ar-camera').style.display = 'none';
+  sEl('ar-note').textContent = 'Nia is in your room! Turn around to look for butterflies — tap 📍 to bring Nia in front of you.';
+  if (!AR.game?.running) arStart(AR.game?.level ?? 0);
+}
+function stopCamAR() {
+  if (!CAM.on) return; CAM.on = false;
+  removeEventListener('deviceorientation', onOrient);
+  try { CAM.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  AR.scene.background = null; CAM.tex && CAM.tex.dispose(); CAM.tex = null; CAM.video = null; CAM.stream = null;
+  AR.stage.visible = true; AR.anchor.position.set(0, 0, 0); AR.anchor.rotation.set(0, 0, 0); AR.anchor.scale.setScalar(1);
+  AR.camera.position.set(0, 1.4, 3.2); AR.camera.fov = innerWidth / innerHeight < 0.8 ? 70 : 55; AR.camera.updateProjectionMatrix();
+  if (AR.controls) { AR.controls.enabled = true; AR.controls.target.set(0, 0.9, 0); }
+  sEl('ar-recenter').style.display = 'none';
+}
 renderer.domElement.addEventListener('pointerdown', (e) => {
   if (!AR.active || AR.xr) return; AR._down = [e.clientX, e.clientY];
 });
@@ -5015,7 +5084,14 @@ function updateAR(t, dt, frame) {
     const ref = renderer.xr.getReferenceSpace(), hits = frame.getHitTestResults(AR.hitSource);
     if (hits.length) { const pose = hits[0].getPose(ref); AR.reticle.visible = true; AR.reticle.matrix.fromArray(pose.transform.matrix); } else AR.reticle.visible = false;
   } else AR.reticle.visible = false;
-  if (!AR.xr && AR.controls) AR.controls.update();
+  if (CAM.on) {
+    if (Math.abs(CAM.aspect - innerWidth / innerHeight) > 1e-3) { camCover(); AR.camera.aspect = innerWidth / innerHeight; AR.camera.updateProjectionMatrix(); }
+    if (CAM.orient) {
+      const q = camOrientQuat(CAM.orient);
+      if (CAM.yaw0 == null || !CAM.q0) { CAM.q0 = true; const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q); CAM.yaw0 = Math.atan2(-f.x, -f.z); }
+      AR.camera.quaternion.copy(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -CAM.yaw0).multiply(q));
+    }
+  } else if (!AR.xr && AR.controls) AR.controls.update();
 }
 
 </script>
