@@ -2817,7 +2817,24 @@ function registerChar(root, o) {
   hit.position.y = (o.height + 0.3) / 2 + (o.hitY || 0); hit.userData.owner = root; ud.hit = hit;
   bake(root);
   ud.furs = []; root.traverse(o => { if (o.isInstancedMesh) ud.furs.push(o); });
+  const originalVisuals = root.children.filter(child => child !== hit);
+  let sharedModel, lastExcite = 0;
+  ud.setModel = (model) => {
+    originalVisuals.forEach(child => root.remove(child));
+    ud.furs = [];
+    sharedModel = model;
+    root.add(model);
+  };
   ud.update = (t, dt, focus) => {
+    ud.excite = Math.max(0, ud.excite - dt * 0.3);
+    o.move?.(t, dt, focus, ud);
+    if (sharedModel) {
+      if (ud.excite > 0.2 && ud.excite > lastExcite) sharedModel.userData.react?.();
+      lastExcite = ud.excite;
+      sharedModel.userData.idle?.(t);
+      sharedModel.userData.flap?.(t);
+      return;
+    }
     // blink
     ud.blinkT -= dt; if (ud.blinkT < 0) { ud.blink = 0.16; ud.blinkT = rr(2.2, 5.5); }
     if (ud.blink > 0) ud.blink -= dt;
@@ -2835,7 +2852,6 @@ function registerChar(root, o) {
       (ud.eyes || []).forEach(e => { e.ball.rotation.y = ud.lookYaw * 0.3; e.ball.rotation.x = ud.lookPitch * 0.4; });
     }
     if (ud.body) { ud.body.scale.y = 1 + Math.sin(t * 2.1 + ud.height) * 0.012; ud.body.scale.x = ud.body.scale.z = 1 - Math.sin(t * 2.1 + ud.height) * 0.006; }
-    ud.excite = Math.max(0, ud.excite - dt * 0.3);
     // talking mouth flaps while the speech bubble is up
     if (ud.mouth) { const talking = bubble.sp.visible && bubble.owner === root; const open = talking && (Math.sin(t * 16) > -0.2); ud.mouth.mat.map = open ? ud.mouth.open : ud.mouth.closed; }
     o.update && o.update(t, dt, focus, ud);
@@ -3248,8 +3264,10 @@ function buildGwenda() {
       'I can talk to flowers! They love it when you count their petals.',
       'Even the tiniest sparkle can light up the world.'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       root.position.y = ud.baseY + 0.45 + Math.sin(t * 1.6) * 0.12;
+    },
+    update: (t) => {
       W.forEach(([p, s]) => { p.rotation.y = s * (0.15 + Math.sin(t * 7) * 0.32); });
       armL.rotation.z = 0.35 + Math.sin(t * 1.3) * 0.08; armR.rotation.x = -0.6 + Math.sin(t * 1.6) * 0.1;
       star.rotation.y = t * 2;
@@ -3351,13 +3369,15 @@ function buildSubby() {
       'Can you count all the way down to zero with me?',
       'Shhh... I\'m leaving a sparkly trail so friends can find their way.'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       const talking = (ud.dist ?? 99) < 5;
       ud.u = (ud.u ?? 0.3) + (talking ? 0 : dt * 0.012 * (ud.dir ?? 1));
       if (ud.u > 0.97) ud.dir = -1; if (ud.u < 0.03) ud.dir = 1;
       const p = SUBBY_TRAIL.getPointAt(ud.u), tg = SUBBY_TRAIL.getTangentAt(ud.u).multiplyScalar(ud.dir ?? 1);
       root.position.set(p.x, H(p.x, p.z) + 0.02, p.z);
       const want = Math.atan2(tg.x, tg.z); let d = want - root.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); root.rotation.y += d * Math.min(1, dt * 2);
+    },
+    update: (t) => {
       body.scale.z = 1 + Math.sin(t * 2.5) * 0.04; body.scale.y = 1 - Math.sin(t * 2.5) * 0.02;
     }
   });
@@ -3435,12 +3455,14 @@ function buildMilly() {
       'Every tree has 4 golden fruits. 12 trees × 4 fruits = 48 fruits!',
       'Arrays make multiplication easier to see. Rows times columns!'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       const near = (ud.dist ?? 99) < 7, L = LM.orchard;
       ud.a = (ud.a ?? 0) + (near ? 0 : dt * 0.18);
       const x = L.x + Math.cos(ud.a) * 7.5, z = L.z + 5 + Math.sin(ud.a) * 2.2;
       root.position.set(x, H(x, z) + 1.5 + Math.sin(t * 1.8) * 0.18, z);
       if (!near) root.rotation.y = ud.a + Math.PI; else { root.rotation.y += (Math.atan2(focus.x - x, focus.z - z) - root.rotation.y) * 0.05; }
+    },
+    update: (t, dt, focus, ud) => {
       W.forEach(([p, s]) => { p.rotation.y = s * (0.3 + Math.sin(t * 5) * 0.45); });
       m.arms[1].rotation.z = ud.excite > 0.2 ? 2.2 + Math.sin(t * 8) * 0.3 : 0.3 + Math.sin(t * 2) * 0.1;
       m.ants.forEach((b, i) => b.material.emissiveIntensity = 1.6 + Math.sin(t * 3 + i) * 0.6);
@@ -3486,7 +3508,7 @@ function buildButterfly() {
       '8 is an even number: 4 + 4 = 8 and 2 × 4 = 8.',
       'I opened the Magic Gate just for you. Go meet Nia and all my friends!'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       const near = (ud.dist ?? 99) < 6;
       ud.s = (ud.s ?? 0) + dt * (near ? 0.15 : 0.55);
       const x = L.x + Math.sin(ud.s) * 3.4, z = L.z - 4 + Math.sin(ud.s * 2) * 1.6;
@@ -3494,8 +3516,10 @@ function buildButterfly() {
       root.position.set(x, cy + Math.sin(t * 2.2) * 0.25, z);
       if (near) root.rotation.y += (Math.atan2(focus.x - x, focus.z - z) - root.rotation.y) * 0.06;
       else if (Math.hypot(x - px, z - pz) > 1e-4) root.rotation.y = Math.atan2(x - px, z - pz);
-      W.forEach(([p, s]) => { p.rotation.y = s * (0.2 + Math.sin(t * 8) * 0.6); });
       tp.copyWithin(3, 0, (TN - 1) * 3); tp[0] = x + rr(-0.1, 0.1); tp[1] = root.position.y + 0.6 + rr(-0.1, 0.1); tp[2] = z + rr(-0.1, 0.1); tg.attributes.position.needsUpdate = true;
+    },
+    update: (t) => {
+      W.forEach(([p, s]) => { p.rotation.y = s * (0.2 + Math.sin(t * 8) * 0.6); });
     }
   });
 }
@@ -3552,21 +3576,26 @@ function buildSkippy() {
       'Counting by 10s is the fastest: 10, 20, 30, 40, 50!',
       'Can you spot the golden acorn at the top of my oak?'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       ud.ht = (ud.ht ?? 0) + dt; ud.i = ud.i ?? 0; ud.dir = ud.dir ?? 1;
       const near = (ud.dist ?? 99) < 5 && ud.i === 0;
       const HOP = 0.55, WAIT = 1.6;
       const a = route[ud.i], b = route[Math.max(0, Math.min(route.length - 1, ud.i + ud.dir))];
-      if (ud.ht < HOP && !near) {
-        const k = ud.ht / HOP; root.position.lerpVectors(a, b, k); root.position.y += Math.sin(k * Math.PI) * 0.9;
+      ud.hopProgress = ud.ht < HOP && !near ? ud.ht / HOP : null;
+      if (ud.hopProgress !== null) {
+        const k = ud.hopProgress; root.position.lerpVectors(a, b, k); root.position.y += Math.sin(k * Math.PI) * 0.9;
         root.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-        tailP.rotation.x = -0.35 - Math.sin(k * Math.PI) * 0.6;
       } else {
         if (!near && ud.ht >= HOP && !ud.landed) { ud.i += ud.dir; ud.landed = true; if (ud.i >= route.length - 1 || ud.i <= 0) ud.dir *= -1; }
-        root.position.copy(route[ud.i]); tailP.rotation.x = -0.35 + Math.sin(t * 3) * 0.08;
+        root.position.copy(route[ud.i]);
         if (ud.ht > HOP + WAIT) { ud.ht = 0; ud.landed = false; }
         if (near) root.rotation.y += (Math.atan2(focus.x - root.position.x, focus.z - root.position.z) - root.rotation.y) * 0.08;
       }
+    },
+    update: (t, dt, focus, ud) => {
+      tailP.rotation.x = ud.hopProgress === null
+        ? -0.35 + Math.sin(t * 3) * 0.08
+        : -0.35 - Math.sin(ud.hopProgress * Math.PI) * 0.6;
       armR.rotation.z = ud.excite > 0.2 ? -2.4 + Math.sin(t * 9) * 0.3 : -0.4;
       armL.rotation.z = 0.4 + Math.sin(t * 2) * 0.05;
     }
@@ -5093,6 +5122,43 @@ function updateAR(t, dt, frame) {
     }
   } else if (!AR.xr && AR.controls) AR.controls.update();
 }
+
+// Use the same models and animation factories as the published AR book.
+const AR_CHARACTER_SOURCE = 'https://mrimagemakers.github.io/NiaNumberGardenAR/';
+
+async function syncGardenCharacters() {
+  const models = await import(AR_CHARACTER_SOURCE + 'core.js');
+  const swaps = [
+    [NIA, models.makeNia], [AR.nia, models.makeNia],
+    [ADDIE, models.makeAddie], [FREDDY, models.makeFreddy], [GWENDA, models.makeGwenda],
+    [CARLO, models.makeCarlo, -Math.PI / 2], [SUBBY, models.makeSubby, -Math.PI / 2],
+    [MILLY, models.makeMilly], [BUTTERFLY, models.makeButterfly8], [SKIPPY, models.makeSkippy]
+  ];
+  const meshes = new Set(['nia', 'addie', 'freddy', 'gwenda']);
+  const imported = models.loadModels();
+
+  await Promise.all(swaps.map(async ([character, makeModel, yaw = 0]) => {
+    const { key, height } = character.userData;
+    try {
+      if (meshes.has(key) && !(await imported)[key]) return;
+
+      const model = makeModel();
+      model.rotation.y = yaw;
+      const bounds = new THREE.Box3().setFromObject(model, true);
+      const size = bounds.getSize(new THREE.Vector3());
+      if (!Number.isFinite(size.y) || size.y <= 0) throw new Error('Invalid character bounds');
+      const center = bounds.getCenter(new THREE.Vector3());
+      const scale = height / size.y;
+      model.scale.multiplyScalar(scale);
+      model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
+      character.userData.setModel(model);
+    } catch (error) {
+      console.warn('Could not load shared garden character:', key, error);
+    }
+  }));
+}
+
+syncGardenCharacters().catch(error => console.warn('Could not load shared garden characters:', error));
 
 </script>
 </body>

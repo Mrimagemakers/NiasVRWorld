@@ -95,8 +95,10 @@ function buildGwenda() {
       'I can talk to flowers! They love it when you count their petals.',
       'Even the tiniest sparkle can light up the world.'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       root.position.y = ud.baseY + 0.45 + Math.sin(t * 1.6) * 0.12;
+    },
+    update: (t) => {
       W.forEach(([p, s]) => { p.rotation.y = s * (0.15 + Math.sin(t * 7) * 0.32); });
       armL.rotation.z = 0.35 + Math.sin(t * 1.3) * 0.08; armR.rotation.x = -0.6 + Math.sin(t * 1.6) * 0.1;
       star.rotation.y = t * 2;
@@ -198,13 +200,15 @@ function buildSubby() {
       'Can you count all the way down to zero with me?',
       'Shhh... I\'m leaving a sparkly trail so friends can find their way.'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       const talking = (ud.dist ?? 99) < 5;
       ud.u = (ud.u ?? 0.3) + (talking ? 0 : dt * 0.012 * (ud.dir ?? 1));
       if (ud.u > 0.97) ud.dir = -1; if (ud.u < 0.03) ud.dir = 1;
       const p = SUBBY_TRAIL.getPointAt(ud.u), tg = SUBBY_TRAIL.getTangentAt(ud.u).multiplyScalar(ud.dir ?? 1);
       root.position.set(p.x, H(p.x, p.z) + 0.02, p.z);
       const want = Math.atan2(tg.x, tg.z); let d = want - root.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); root.rotation.y += d * Math.min(1, dt * 2);
+    },
+    update: (t) => {
       body.scale.z = 1 + Math.sin(t * 2.5) * 0.04; body.scale.y = 1 - Math.sin(t * 2.5) * 0.02;
     }
   });

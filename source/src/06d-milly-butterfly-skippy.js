@@ -69,12 +69,14 @@ function buildMilly() {
       'Every tree has 4 golden fruits. 12 trees × 4 fruits = 48 fruits!',
       'Arrays make multiplication easier to see. Rows times columns!'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       const near = (ud.dist ?? 99) < 7, L = LM.orchard;
       ud.a = (ud.a ?? 0) + (near ? 0 : dt * 0.18);
       const x = L.x + Math.cos(ud.a) * 7.5, z = L.z + 5 + Math.sin(ud.a) * 2.2;
       root.position.set(x, H(x, z) + 1.5 + Math.sin(t * 1.8) * 0.18, z);
       if (!near) root.rotation.y = ud.a + Math.PI; else { root.rotation.y += (Math.atan2(focus.x - x, focus.z - z) - root.rotation.y) * 0.05; }
+    },
+    update: (t, dt, focus, ud) => {
       W.forEach(([p, s]) => { p.rotation.y = s * (0.3 + Math.sin(t * 5) * 0.45); });
       m.arms[1].rotation.z = ud.excite > 0.2 ? 2.2 + Math.sin(t * 8) * 0.3 : 0.3 + Math.sin(t * 2) * 0.1;
       m.ants.forEach((b, i) => b.material.emissiveIntensity = 1.6 + Math.sin(t * 3 + i) * 0.6);
@@ -120,7 +122,7 @@ function buildButterfly() {
       '8 is an even number: 4 + 4 = 8 and 2 × 4 = 8.',
       'I opened the Magic Gate just for you. Go meet Nia and all my friends!'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       const near = (ud.dist ?? 99) < 6;
       ud.s = (ud.s ?? 0) + dt * (near ? 0.15 : 0.55);
       const x = L.x + Math.sin(ud.s) * 3.4, z = L.z - 4 + Math.sin(ud.s * 2) * 1.6;
@@ -128,8 +130,10 @@ function buildButterfly() {
       root.position.set(x, cy + Math.sin(t * 2.2) * 0.25, z);
       if (near) root.rotation.y += (Math.atan2(focus.x - x, focus.z - z) - root.rotation.y) * 0.06;
       else if (Math.hypot(x - px, z - pz) > 1e-4) root.rotation.y = Math.atan2(x - px, z - pz);
-      W.forEach(([p, s]) => { p.rotation.y = s * (0.2 + Math.sin(t * 8) * 0.6); });
       tp.copyWithin(3, 0, (TN - 1) * 3); tp[0] = x + rr(-0.1, 0.1); tp[1] = root.position.y + 0.6 + rr(-0.1, 0.1); tp[2] = z + rr(-0.1, 0.1); tg.attributes.position.needsUpdate = true;
+    },
+    update: (t) => {
+      W.forEach(([p, s]) => { p.rotation.y = s * (0.2 + Math.sin(t * 8) * 0.6); });
     }
   });
 }
@@ -186,21 +190,26 @@ function buildSkippy() {
       'Counting by 10s is the fastest: 10, 20, 30, 40, 50!',
       'Can you spot the golden acorn at the top of my oak?'
     ],
-    update: (t, dt, focus, ud) => {
+    move: (t, dt, focus, ud) => {
       ud.ht = (ud.ht ?? 0) + dt; ud.i = ud.i ?? 0; ud.dir = ud.dir ?? 1;
       const near = (ud.dist ?? 99) < 5 && ud.i === 0;
       const HOP = 0.55, WAIT = 1.6;
       const a = route[ud.i], b = route[Math.max(0, Math.min(route.length - 1, ud.i + ud.dir))];
-      if (ud.ht < HOP && !near) {
-        const k = ud.ht / HOP; root.position.lerpVectors(a, b, k); root.position.y += Math.sin(k * Math.PI) * 0.9;
+      ud.hopProgress = ud.ht < HOP && !near ? ud.ht / HOP : null;
+      if (ud.hopProgress !== null) {
+        const k = ud.hopProgress; root.position.lerpVectors(a, b, k); root.position.y += Math.sin(k * Math.PI) * 0.9;
         root.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-        tailP.rotation.x = -0.35 - Math.sin(k * Math.PI) * 0.6;
       } else {
         if (!near && ud.ht >= HOP && !ud.landed) { ud.i += ud.dir; ud.landed = true; if (ud.i >= route.length - 1 || ud.i <= 0) ud.dir *= -1; }
-        root.position.copy(route[ud.i]); tailP.rotation.x = -0.35 + Math.sin(t * 3) * 0.08;
+        root.position.copy(route[ud.i]);
         if (ud.ht > HOP + WAIT) { ud.ht = 0; ud.landed = false; }
         if (near) root.rotation.y += (Math.atan2(focus.x - root.position.x, focus.z - root.position.z) - root.rotation.y) * 0.08;
       }
+    },
+    update: (t, dt, focus, ud) => {
+      tailP.rotation.x = ud.hopProgress === null
+        ? -0.35 + Math.sin(t * 3) * 0.08
+        : -0.35 - Math.sin(ud.hopProgress * Math.PI) * 0.6;
       armR.rotation.z = ud.excite > 0.2 ? -2.4 + Math.sin(t * 9) * 0.3 : -0.4;
       armL.rotation.z = 0.4 + Math.sin(t * 2) * 0.05;
     }

@@ -194,7 +194,24 @@ function registerChar(root, o) {
   hit.position.y = (o.height + 0.3) / 2 + (o.hitY || 0); hit.userData.owner = root; ud.hit = hit;
   bake(root);
   ud.furs = []; root.traverse(o => { if (o.isInstancedMesh) ud.furs.push(o); });
+  const originalVisuals = root.children.filter(child => child !== hit);
+  let sharedModel, lastExcite = 0;
+  ud.setModel = (model) => {
+    originalVisuals.forEach(child => root.remove(child));
+    ud.furs = [];
+    sharedModel = model;
+    root.add(model);
+  };
   ud.update = (t, dt, focus) => {
+    ud.excite = Math.max(0, ud.excite - dt * 0.3);
+    o.move?.(t, dt, focus, ud);
+    if (sharedModel) {
+      if (ud.excite > 0.2 && ud.excite > lastExcite) sharedModel.userData.react?.();
+      lastExcite = ud.excite;
+      sharedModel.userData.idle?.(t);
+      sharedModel.userData.flap?.(t);
+      return;
+    }
     // blink
     ud.blinkT -= dt; if (ud.blinkT < 0) { ud.blink = 0.16; ud.blinkT = rr(2.2, 5.5); }
     if (ud.blink > 0) ud.blink -= dt;
@@ -212,7 +229,6 @@ function registerChar(root, o) {
       (ud.eyes || []).forEach(e => { e.ball.rotation.y = ud.lookYaw * 0.3; e.ball.rotation.x = ud.lookPitch * 0.4; });
     }
     if (ud.body) { ud.body.scale.y = 1 + Math.sin(t * 2.1 + ud.height) * 0.012; ud.body.scale.x = ud.body.scale.z = 1 - Math.sin(t * 2.1 + ud.height) * 0.006; }
-    ud.excite = Math.max(0, ud.excite - dt * 0.3);
     // talking mouth flaps while the speech bubble is up
     if (ud.mouth) { const talking = bubble.sp.visible && bubble.owner === root; const open = talking && (Math.sin(t * 16) > -0.2); ud.mouth.mat.map = open ? ud.mouth.open : ud.mouth.closed; }
     o.update && o.update(t, dt, focus, ud);
