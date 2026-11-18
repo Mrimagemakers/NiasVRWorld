@@ -476,11 +476,17 @@ window.__batch = staticBatch(scene);
 for (const o of FLOATERS) cullAdd(o, 80);
 for (const s of GAME_STONES) cullAdd(s.obj, 90, s.pos.clone());
 for (const c of CHARS) cullAdd(c, 75);
-{
-  const btn = document.getElementById('start-btn'); if (btn && !window.__pendingStart) btn.textContent = '🌱 Enter the Garden';
-  const done = () => markReady();
-  try { (renderer.compileAsync ? renderer.compileAsync(scene, camera) : Promise.resolve(renderer.compile(scene, camera))).then(done, done); } catch (e) { done(); }
-  setTimeout(done, 15000);
-}
+const gardenSceneReady = new Promise(resolve => {
+  const timeout = setTimeout(resolve, 15000);
+  const done = () => { clearTimeout(timeout); resolve(); };
+  try {
+    const compilation = renderer.compileAsync
+      ? renderer.compileAsync(scene, camera)
+      : renderer.compile(scene, camera);
+    Promise.resolve(compilation).then(done, done);
+  } catch (error) {
+    done();
+  }
+});
 window.__dbg = { camera, controls, LM, CHARS, renderer, scene, groundAt, H, openGame, GAME, teleportTo, LIBRARY, rideLift, LIFTS, get onIsland() { return onIsland; }, get AR() { return AR; }, get SOCIAL() { return SOCIAL; } };
 window.actNear = () => nearThing && nearThing.act();

@@ -1,8 +1,7 @@
-// Use the same models and animation factories as the published AR book.
-const AR_CHARACTER_SOURCE = 'https://mrimagemakers.github.io/NiaNumberGardenAR/';
+// These assets are packaged with the world so the AR site can be deployed independently.
 
 async function syncGardenCharacters() {
-  const models = await import(AR_CHARACTER_SOURCE + 'core.js');
+  const models = await import('./assets/number-garden-characters/core.js');
   const swaps = [
     [NIA, models.makeNia], [AR.nia, models.makeNia],
     [ADDIE, models.makeAddie], [FREDDY, models.makeFreddy], [GWENDA, models.makeGwenda],
@@ -12,10 +11,10 @@ async function syncGardenCharacters() {
   const meshes = new Set(['nia', 'addie', 'freddy', 'gwenda']);
   const imported = models.loadModels();
 
-  await Promise.all(swaps.map(async ([character, makeModel, yaw = 0]) => {
+  const results = await Promise.all(swaps.map(async ([character, makeModel, yaw = 0]) => {
     const { key, height } = character.userData;
     try {
-      if (meshes.has(key) && !(await imported)[key]) return;
+      if (meshes.has(key) && !(await imported)[key]) return false;
 
       const model = makeModel();
       model.rotation.y = yaw;
@@ -27,10 +26,32 @@ async function syncGardenCharacters() {
       model.scale.multiplyScalar(scale);
       model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
       character.userData.setModel(model);
+      return true;
     } catch (error) {
       console.warn('Could not load shared garden character:', key, error);
+      return false;
     }
   }));
+  return results.every(Boolean);
 }
 
-syncGardenCharacters().catch(error => console.warn('Could not load shared garden characters:', error));
+const castStatus = document.getElementById('cast-status');
+const charactersReady = syncGardenCharacters().catch(error => {
+  console.warn('Could not load shared garden characters:', error);
+  return false;
+});
+charactersReady.then(loaded => {
+  castStatus.textContent = loaded ? 'Updated characters ready' : 'Some updated characters failed to load. Reload to try again.';
+  castStatus.dataset.state = loaded ? 'ready' : 'fallback';
+});
+const allowGardenEntry = new Promise(resolve => {
+  const timeout = setTimeout(() => {
+    castStatus.textContent = 'Some updated characters are still loading.';
+    resolve();
+  }, 20000);
+  charactersReady.then(() => {
+    clearTimeout(timeout);
+    resolve();
+  });
+});
+Promise.all([gardenSceneReady, allowGardenEntry]).then(markReady);
